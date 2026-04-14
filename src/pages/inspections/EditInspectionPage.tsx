@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
+import { normalizeRelation } from '../../lib/supabaseRelationHelpers';
 
 type InspectionTargetOption = {
   id: string;
@@ -53,6 +54,20 @@ type InspectionHeader = {
     role: string | null;
   } | null;
   results: ExistingInspectionResult[];
+};
+
+type InspectionHeaderRaw = {
+  id: string;
+  target_id: string;
+  template_id: string;
+  inspection_date: string;
+  abnormal_flag: boolean;
+  comment: string | null;
+  abnormal_comment: string | null;
+  target: unknown;
+  template: unknown;
+  inspector: unknown;
+  results: ExistingInspectionResult[] | null;
 };
 
 type ResultValue = '' | 'ok' | 'ng' | 'na';
@@ -108,7 +123,7 @@ export default function EditInspectionPage() {
       return;
     }
 
-    fetchPageData();
+    void fetchPageData();
   }, [inspectionId]);
 
   const fetchPageData = async () => {
@@ -153,7 +168,7 @@ export default function EditInspectionPage() {
             comment,
             template_item_id
           )
-        `
+        `,
         )
         .eq('id', inspectionId)
         .single(),
@@ -181,7 +196,53 @@ export default function EditInspectionPage() {
       return;
     }
 
-    const inspectionData = inspectionResult.data as InspectionHeader;
+    const rawInspection = inspectionResult.data as InspectionHeaderRaw | null;
+
+    if (!rawInspection) {
+      setMessage('点検データが見つかりませんでした。');
+      setMessageType('error');
+      setInspection(null);
+      setLoading(false);
+      return;
+    }
+
+    const inspectionData: InspectionHeader = {
+      id: rawInspection.id,
+      target_id: rawInspection.target_id,
+      template_id: rawInspection.template_id,
+      inspection_date: rawInspection.inspection_date,
+      abnormal_flag: rawInspection.abnormal_flag,
+      comment: rawInspection.comment,
+      abnormal_comment: rawInspection.abnormal_comment,
+      target: normalizeRelation<{
+        id: string;
+        name: string;
+        category: string | null;
+        location: string | null;
+      }>(rawInspection.target, {
+        id: '',
+        name: '未設定',
+        category: null,
+        location: null,
+      }),
+      template: normalizeRelation<InspectionTemplate>(rawInspection.template, {
+        id: '',
+        name: '未設定',
+        category: null,
+        is_active: false,
+      }),
+      inspector: normalizeRelation<{
+        id: string;
+        name: string | null;
+        role: string | null;
+      }>(rawInspection.inspector, {
+        id: '',
+        name: '不明',
+        role: null,
+      }),
+      results: rawInspection.results ?? [],
+    };
+
     setInspection(inspectionData);
     setTemplate(inspectionData.template ?? null);
     setTargets((targetsResult.data ?? []) as InspectionTargetOption[]);
@@ -202,7 +263,7 @@ export default function EditInspectionPage() {
     }
 
     const existingResultMap = new Map(
-      (inspectionData.results ?? []).map((row) => [row.template_item_id, row])
+      (inspectionData.results ?? []).map((row) => [row.template_item_id, row]),
     );
 
     const mergedRows = ((templateItemsResult.data ?? []) as TemplateItem[]).map((item) => {
@@ -242,9 +303,7 @@ export default function EditInspectionPage() {
   const effectiveAbnormalFlag = formState.abnormalFlag || hasNgResult;
 
   const hasNgComment = useMemo(() => {
-    return formState.results.some(
-      (row) => row.result === 'ng' && row.comment.trim() !== ''
-    );
+    return formState.results.some((row) => row.result === 'ng' && row.comment.trim() !== '');
   }, [formState.results]);
 
   const fallbackAbnormalComment = useMemo(() => {
@@ -267,7 +326,7 @@ export default function EditInspectionPage() {
               ...row,
               result: value,
             }
-          : row
+          : row,
       ),
     }));
   };
@@ -281,7 +340,7 @@ export default function EditInspectionPage() {
               ...row,
               comment: value,
             }
-          : row
+          : row,
       ),
     }));
   };
@@ -314,7 +373,7 @@ export default function EditInspectionPage() {
     }
 
     const hasMissingRequired = formState.results.some(
-      (row) => row.isRequired && row.result === ''
+      (row) => row.isRequired && row.result === '',
     );
 
     if (hasMissingRequired) {
@@ -331,11 +390,7 @@ export default function EditInspectionPage() {
       return;
     }
 
-    if (
-      effectiveAbnormalFlag &&
-      !formState.abnormalComment.trim() &&
-      !hasNgComment
-    ) {
+    if (effectiveAbnormalFlag && !formState.abnormalComment.trim() && !hasNgComment) {
       setMessage('異常ありの場合は、異常内容コメントまたはNG項目コメントを入力してください。');
       setMessageType('error');
       return;
@@ -428,18 +483,14 @@ export default function EditInspectionPage() {
           </div>
 
           <h1 className="text-2xl font-bold text-slate-900">点検結果を編集</h1>
-          <p className="mt-1 text-sm text-slate-600">
-            登録済みの点検結果を修正できます。
-          </p>
+          <p className="mt-1 text-sm text-slate-600">登録済みの点検結果を修正できます。</p>
         </div>
 
         <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm shadow-sm">
           <div className="font-semibold text-slate-900">
             入力済み {completedCount} / {formState.results.length}
           </div>
-          <div className="mt-1 text-slate-500">
-            テンプレートは固定で、結果のみ更新します。
-          </div>
+          <div className="mt-1 text-slate-500">テンプレートは固定で、結果のみ更新します。</div>
         </div>
       </div>
 
@@ -636,9 +687,7 @@ export default function EditInspectionPage() {
               <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
                 <div>
                   <h2 className="text-xl font-semibold text-slate-900">点検項目入力</h2>
-                  <p className="mt-2 text-sm text-slate-500">
-                    既存結果を修正して保存できます。
-                  </p>
+                  <p className="mt-2 text-sm text-slate-500">既存結果を修正して保存できます。</p>
                 </div>
 
                 {template && (
@@ -672,9 +721,7 @@ export default function EditInspectionPage() {
                           </span>
                         </div>
 
-                        <h3 className="mt-2 text-base font-semibold text-slate-900">
-                          {row.itemName}
-                        </h3>
+                        <h3 className="mt-2 text-base font-semibold text-slate-900">{row.itemName}</h3>
                       </div>
 
                       <div className="flex flex-wrap gap-4 text-sm text-slate-700">
@@ -735,9 +782,7 @@ export default function EditInspectionPage() {
                       <input
                         type="text"
                         value={row.comment}
-                        onChange={(e) =>
-                          handleResultCommentChange(row.templateItemId, e.target.value)
-                        }
+                        onChange={(e) => handleResultCommentChange(row.templateItemId, e.target.value)}
                         disabled={submitting}
                         placeholder="必要に応じてコメントを入力"
                         className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-slate-500 focus:ring-2 focus:ring-slate-200 disabled:opacity-60"

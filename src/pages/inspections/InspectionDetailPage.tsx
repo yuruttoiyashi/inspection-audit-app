@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
+import { normalizeRelation } from '../../lib/supabaseRelationHelpers';
 
 type InspectionDetail = {
   id: string;
@@ -40,6 +41,25 @@ type InspectionResultRow = {
   } | null;
 };
 
+type InspectionResultRowRaw = {
+  id: string;
+  result: string;
+  comment: string | null;
+  templateItem: unknown;
+};
+
+type InspectionDetailRaw = {
+  id: string;
+  inspection_date: string;
+  abnormal_flag: boolean;
+  comment: string | null;
+  abnormal_comment: string | null;
+  target: unknown;
+  template: unknown;
+  inspector: unknown;
+  results: InspectionResultRowRaw[] | null;
+};
+
 export default function InspectionDetailPage() {
   const { inspectionId } = useParams<{ inspectionId: string }>();
 
@@ -56,7 +76,7 @@ export default function InspectionDetailPage() {
       return;
     }
 
-    fetchInspectionDetail();
+    void fetchInspectionDetail();
   }, [inspectionId]);
 
   const fetchInspectionDetail = async () => {
@@ -103,7 +123,7 @@ export default function InspectionDetailPage() {
             is_required
           )
         )
-      `
+      `,
       )
       .eq('id', inspectionId)
       .single();
@@ -114,7 +134,66 @@ export default function InspectionDetailPage() {
       setMessage(`点検詳細の取得に失敗しました。${error.message}`);
       setMessageType('error');
     } else {
-      setInspection((data ?? null) as InspectionDetail | null);
+      const raw = (data ?? null) as InspectionDetailRaw | null;
+
+      const normalizedInspection: InspectionDetail | null = raw
+        ? {
+            id: raw.id,
+            inspection_date: raw.inspection_date,
+            abnormal_flag: raw.abnormal_flag,
+            comment: raw.comment,
+            abnormal_comment: raw.abnormal_comment,
+            target: normalizeRelation<{
+              id: string;
+              name: string;
+              category: string | null;
+              location: string | null;
+            }>(raw.target, {
+              id: '',
+              name: '未設定',
+              category: null,
+              location: null,
+            }),
+            template: normalizeRelation<{
+              id: string;
+              name: string;
+              category: string | null;
+              is_active: boolean;
+            }>(raw.template, {
+              id: '',
+              name: '未設定',
+              category: null,
+              is_active: false,
+            }),
+            inspector: normalizeRelation<{
+              id: string;
+              name: string | null;
+              role: string | null;
+            }>(raw.inspector, {
+              id: '',
+              name: '不明',
+              role: null,
+            }),
+            results: (raw.results ?? []).map((row) => ({
+              id: row.id,
+              result: row.result,
+              comment: row.comment,
+              templateItem: normalizeRelation<{
+                id: string;
+                item_name: string;
+                sort_order: number;
+                is_required: boolean;
+              }>(row.templateItem, {
+                id: '',
+                item_name: '未設定',
+                sort_order: 9999,
+                is_required: false,
+              }),
+            })),
+          }
+        : null;
+
+      setInspection(normalizedInspection);
     }
 
     setLoading(false);
@@ -153,8 +232,7 @@ export default function InspectionDetailPage() {
   };
 
   const renderResultBadge = (value: string) => {
-    const baseClass =
-      'inline-flex rounded-full px-2.5 py-1 text-xs font-semibold';
+    const baseClass = 'inline-flex rounded-full px-2.5 py-1 text-xs font-semibold';
 
     if (value === 'ok') {
       return <span className={`${baseClass} bg-emerald-50 text-emerald-700`}>OK</span>;
@@ -202,7 +280,7 @@ export default function InspectionDetailPage() {
 
           <button
             type="button"
-            onClick={fetchInspectionDetail}
+            onClick={() => void fetchInspectionDetail()}
             disabled={loading}
             className="inline-flex items-center justify-center rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
           >
@@ -318,9 +396,7 @@ export default function InspectionDetailPage() {
             <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
               <div>
                 <h2 className="text-xl font-semibold text-slate-900">点検項目結果</h2>
-                <p className="mt-2 text-sm text-slate-500">
-                  項目ごとの結果とコメントを確認できます。
-                </p>
+                <p className="mt-2 text-sm text-slate-500">項目ごとの結果とコメントを確認できます。</p>
               </div>
 
               <div className="text-sm text-slate-500">{sortedResults.length}件</div>
@@ -345,9 +421,7 @@ export default function InspectionDetailPage() {
                   <tbody>
                     {sortedResults.map((row) => (
                       <tr key={row.id} className="border-b border-slate-100 text-slate-700">
-                        <td className="px-3 py-4">
-                          {row.templateItem?.sort_order ?? '-'}
-                        </td>
+                        <td className="px-3 py-4">{row.templateItem?.sort_order ?? '-'}</td>
                         <td className="px-3 py-4 font-semibold text-slate-900">
                           {row.templateItem?.item_name || '-'}
                         </td>
@@ -363,9 +437,7 @@ export default function InspectionDetailPage() {
                           </span>
                         </td>
                         <td className="px-3 py-4">{renderResultBadge(row.result)}</td>
-                        <td className="px-3 py-4">
-                          {row.comment || formatResultLabel(row.result)}
-                        </td>
+                        <td className="px-3 py-4">{row.comment || formatResultLabel(row.result)}</td>
                       </tr>
                     ))}
                   </tbody>

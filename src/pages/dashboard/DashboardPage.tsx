@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
+import { normalizeRelation } from '../../lib/supabaseRelationHelpers';
 
 type Profile = {
   name: string | null;
@@ -31,6 +32,17 @@ type RecentTemplate = {
   category: string | null;
   is_active: boolean;
   created_at: string;
+};
+
+type RecentInspectionRowRaw = {
+  id: string;
+  inspection_date: string;
+  abnormal_flag: boolean;
+  comment: string | null;
+  abnormal_comment: string | null;
+  target: unknown;
+  template: unknown;
+  inspector: unknown;
 };
 
 type RecentInspection = {
@@ -74,7 +86,7 @@ export default function DashboardPage() {
   const [recentInspections, setRecentInspections] = useState<RecentInspection[]>([]);
 
   useEffect(() => {
-    fetchDashboardData();
+    void fetchDashboardData();
   }, []);
 
   const fetchDashboardData = async () => {
@@ -119,9 +131,7 @@ export default function DashboardPage() {
         .from('inspection_templates')
         .select('*', { count: 'exact', head: true })
         .eq('is_active', true),
-      supabase
-        .from('inspection_template_items')
-        .select('*', { count: 'exact', head: true }),
+      supabase.from('inspection_template_items').select('*', { count: 'exact', head: true }),
       supabase.from('inspections').select('*', { count: 'exact', head: true }),
       supabase
         .from('inspection_targets')
@@ -154,7 +164,7 @@ export default function DashboardPage() {
             id,
             name
           )
-        `
+        `,
         )
         .order('inspection_date', { ascending: false })
         .order('id', { ascending: false })
@@ -200,8 +210,30 @@ export default function DashboardPage() {
 
     setRecentTargets((recentTargetsResult.data ?? []) as RecentTarget[]);
     setRecentTemplates((recentTemplatesResult.data ?? []) as RecentTemplate[]);
-    setRecentInspections((recentInspectionsResult.data ?? []) as RecentInspection[]);
 
+    const recentInspectionRows = (recentInspectionsResult.data ?? []) as RecentInspectionRowRaw[];
+
+    const normalizedRecentInspections: RecentInspection[] = recentInspectionRows.map((row) => ({
+      id: row.id,
+      inspection_date: row.inspection_date,
+      abnormal_flag: row.abnormal_flag,
+      comment: row.comment,
+      abnormal_comment: row.abnormal_comment,
+      target: normalizeRelation<{ id: string; name: string }>(row.target, {
+        id: '',
+        name: '未設定',
+      }),
+      template: normalizeRelation<{ id: string; name: string }>(row.template, {
+        id: '',
+        name: '未設定',
+      }),
+      inspector: normalizeRelation<{ id: string; name: string | null }>(row.inspector, {
+        id: '',
+        name: '不明',
+      }),
+    }));
+
+    setRecentInspections(normalizedRecentInspections);
     setLoading(false);
   };
 
@@ -227,9 +259,7 @@ export default function DashboardPage() {
     return (
       <span
         className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${
-          isActive
-            ? 'bg-emerald-50 text-emerald-700'
-            : 'bg-slate-100 text-slate-600'
+          isActive ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-600'
         }`}
       >
         {isActive ? '有効' : '無効'}
@@ -241,9 +271,7 @@ export default function DashboardPage() {
     return (
       <span
         className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${
-          isAbnormal
-            ? 'bg-rose-50 text-rose-700'
-            : 'bg-emerald-50 text-emerald-700'
+          isAbnormal ? 'bg-rose-50 text-rose-700' : 'bg-emerald-50 text-emerald-700'
         }`}
       >
         {isAbnormal ? '異常あり' : '異常なし'}
@@ -263,7 +291,7 @@ export default function DashboardPage() {
 
         <button
           type="button"
-          onClick={fetchDashboardData}
+          onClick={() => void fetchDashboardData()}
           disabled={loading}
           className="inline-flex items-center justify-center rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
         >
@@ -280,9 +308,7 @@ export default function DashboardPage() {
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-6">
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <p className="text-sm font-medium text-slate-500">点検対象数</p>
-          <p className="mt-3 text-3xl font-bold text-slate-900">
-            {loading ? '-' : stats.targetCount}
-          </p>
+          <p className="mt-3 text-3xl font-bold text-slate-900">{loading ? '-' : stats.targetCount}</p>
           <p className="mt-2 text-xs text-slate-500">登録済みの点検対象</p>
         </div>
 
@@ -296,9 +322,7 @@ export default function DashboardPage() {
 
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <p className="text-sm font-medium text-slate-500">テンプレート数</p>
-          <p className="mt-3 text-3xl font-bold text-slate-900">
-            {loading ? '-' : stats.templateCount}
-          </p>
+          <p className="mt-3 text-3xl font-bold text-slate-900">{loading ? '-' : stats.templateCount}</p>
           <p className="mt-2 text-xs text-slate-500">登録済みテンプレート</p>
         </div>
 
@@ -334,12 +358,10 @@ export default function DashboardPage() {
 
             <div className="mt-5 space-y-3 rounded-xl bg-slate-50 p-4 text-sm text-slate-700">
               <div>
-                <span className="font-semibold text-slate-900">表示名:</span>{' '}
-                {profile?.name || '-'}
+                <span className="font-semibold text-slate-900">表示名:</span> {profile?.name || '-'}
               </div>
               <div>
-                <span className="font-semibold text-slate-900">ロール:</span>{' '}
-                {profile?.role || '-'}
+                <span className="font-semibold text-slate-900">ロール:</span> {profile?.role || '-'}
               </div>
               <div>
                 <span className="font-semibold text-slate-900">ログイン中メール:</span>{' '}
@@ -389,9 +411,7 @@ export default function DashboardPage() {
             <div className="flex items-end justify-between gap-4">
               <div>
                 <h2 className="text-xl font-semibold text-slate-900">最近登録した点検対象</h2>
-                <p className="mt-2 text-sm text-slate-500">
-                  直近で登録された点検対象を確認できます。
-                </p>
+                <p className="mt-2 text-sm text-slate-500">直近で登録された点検対象を確認できます。</p>
               </div>
               <Link
                 to="/targets"
@@ -439,9 +459,7 @@ export default function DashboardPage() {
             <div className="flex items-end justify-between gap-4">
               <div>
                 <h2 className="text-xl font-semibold text-slate-900">最近登録したテンプレート</h2>
-                <p className="mt-2 text-sm text-slate-500">
-                  直近で登録されたテンプレートを確認できます。
-                </p>
+                <p className="mt-2 text-sm text-slate-500">直近で登録されたテンプレートを確認できます。</p>
               </div>
               <Link
                 to="/templates"
@@ -470,13 +488,8 @@ export default function DashboardPage() {
                   </thead>
                   <tbody>
                     {recentTemplates.map((template) => (
-                      <tr
-                        key={template.id}
-                        className="border-b border-slate-100 text-slate-700"
-                      >
-                        <td className="px-3 py-4 font-semibold text-slate-900">
-                          {template.name}
-                        </td>
+                      <tr key={template.id} className="border-b border-slate-100 text-slate-700">
+                        <td className="px-3 py-4 font-semibold text-slate-900">{template.name}</td>
                         <td className="px-3 py-4">{template.category || '-'}</td>
                         <td className="px-3 py-4">{renderStatusBadge(template.is_active)}</td>
                         <td className="px-3 py-4">{formatDateTime(template.created_at)}</td>
@@ -492,9 +505,7 @@ export default function DashboardPage() {
             <div className="flex items-end justify-between gap-4">
               <div>
                 <h2 className="text-xl font-semibold text-slate-900">最近の点検実施</h2>
-                <p className="mt-2 text-sm text-slate-500">
-                  直近で登録された点検実施を確認できます。
-                </p>
+                <p className="mt-2 text-sm text-slate-500">直近で登録された点検実施を確認できます。</p>
               </div>
               <Link
                 to="/inspections"
@@ -524,19 +535,14 @@ export default function DashboardPage() {
                   </thead>
                   <tbody>
                     {recentInspections.map((inspection) => (
-                      <tr
-                        key={inspection.id}
-                        className="border-b border-slate-100 text-slate-700"
-                      >
+                      <tr key={inspection.id} className="border-b border-slate-100 text-slate-700">
                         <td className="px-3 py-4">{formatDate(inspection.inspection_date)}</td>
                         <td className="px-3 py-4 font-semibold text-slate-900">
                           {inspection.target?.name || '-'}
                         </td>
                         <td className="px-3 py-4">{inspection.template?.name || '-'}</td>
                         <td className="px-3 py-4">{inspection.inspector?.name || '-'}</td>
-                        <td className="px-3 py-4">
-                          {renderAbnormalBadge(inspection.abnormal_flag)}
-                        </td>
+                        <td className="px-3 py-4">{renderAbnormalBadge(inspection.abnormal_flag)}</td>
                       </tr>
                     ))}
                   </tbody>

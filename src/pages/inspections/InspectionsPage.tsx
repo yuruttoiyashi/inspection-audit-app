@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
+import { normalizeRelation } from '../../lib/supabaseRelationHelpers';
 
 type InspectionRow = {
   id: string;
@@ -22,6 +23,17 @@ type InspectionRow = {
   } | null;
 };
 
+type InspectionRowRaw = {
+  id: string;
+  inspection_date: string;
+  abnormal_flag: boolean;
+  comment: string | null;
+  abnormal_comment: string | null;
+  target: unknown;
+  template: unknown;
+  inspector: unknown;
+};
+
 type AbnormalFilter = 'all' | 'abnormal' | 'normal';
 
 export default function InspectionsPage() {
@@ -35,7 +47,7 @@ export default function InspectionsPage() {
   const [messageType, setMessageType] = useState<'success' | 'error' | ''>('');
 
   useEffect(() => {
-    fetchInspections();
+    void fetchInspections();
   }, []);
 
   const fetchInspections = async () => {
@@ -64,7 +76,7 @@ export default function InspectionsPage() {
           id,
           name
         )
-      `
+      `,
       )
       .order('inspection_date', { ascending: false })
       .order('id', { ascending: false });
@@ -75,7 +87,29 @@ export default function InspectionsPage() {
       setMessage(`点検実施一覧の取得に失敗しました。${error.message}`);
       setMessageType('error');
     } else {
-      setInspections((data ?? []) as InspectionRow[]);
+      const inspectionRows = (data ?? []) as InspectionRowRaw[];
+
+      const normalizedInspections: InspectionRow[] = inspectionRows.map((row) => ({
+        id: row.id,
+        inspection_date: row.inspection_date,
+        abnormal_flag: row.abnormal_flag,
+        comment: row.comment,
+        abnormal_comment: row.abnormal_comment,
+        target: normalizeRelation<{ id: string; name: string }>(row.target, {
+          id: '',
+          name: '未設定',
+        }),
+        template: normalizeRelation<{ id: string; name: string }>(row.template, {
+          id: '',
+          name: '未設定',
+        }),
+        inspector: normalizeRelation<{ id: string; name: string | null }>(row.inspector, {
+          id: '',
+          name: '不明',
+        }),
+      }));
+
+      setInspections(normalizedInspections);
     }
 
     setLoading(false);
@@ -136,9 +170,7 @@ export default function InspectionsPage() {
       <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">点検実施一覧</h1>
-          <p className="mt-1 text-sm text-slate-600">
-            登録済みの点検結果を一覧で確認できます。
-          </p>
+          <p className="mt-1 text-sm text-slate-600">登録済みの点検結果を一覧で確認できます。</p>
         </div>
 
         <div className="flex flex-wrap gap-2">
@@ -151,7 +183,7 @@ export default function InspectionsPage() {
 
           <button
             type="button"
-            onClick={fetchInspections}
+            onClick={() => void fetchInspections()}
             disabled={loading}
             className="inline-flex items-center justify-center rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
           >
@@ -175,17 +207,13 @@ export default function InspectionsPage() {
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <p className="text-sm font-medium text-slate-500">点検実施数</p>
-          <p className="mt-3 text-3xl font-bold text-slate-900">
-            {loading ? '-' : inspections.length}
-          </p>
+          <p className="mt-3 text-3xl font-bold text-slate-900">{loading ? '-' : inspections.length}</p>
           <p className="mt-2 text-xs text-slate-500">登録済みの点検件数</p>
         </div>
 
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <p className="text-sm font-medium text-slate-500">異常あり件数</p>
-          <p className="mt-3 text-3xl font-bold text-rose-600">
-            {loading ? '-' : abnormalCount}
-          </p>
+          <p className="mt-3 text-3xl font-bold text-rose-600">{loading ? '-' : abnormalCount}</p>
           <p className="mt-2 text-xs text-slate-500">abnormal_flag = true の件数</p>
         </div>
 
@@ -208,9 +236,7 @@ export default function InspectionsPage() {
           </div>
 
           <div className="text-sm text-slate-500">
-            {loading
-              ? '読み込み中...'
-              : `${filteredInspections.length}件表示中 / 全${inspections.length}件`}
+            {loading ? '読み込み中...' : `${filteredInspections.length}件表示中 / 全${inspections.length}件`}
           </div>
         </div>
 
@@ -277,10 +303,7 @@ export default function InspectionsPage() {
               </thead>
               <tbody>
                 {filteredInspections.map((inspection) => (
-                  <tr
-                    key={inspection.id}
-                    className="border-b border-slate-100 text-slate-700"
-                  >
+                  <tr key={inspection.id} className="border-b border-slate-100 text-slate-700">
                     <td className="px-3 py-4">{formatDate(inspection.inspection_date)}</td>
                     <td className="px-3 py-4 font-semibold text-slate-900">
                       {inspection.target?.name || '-'}
